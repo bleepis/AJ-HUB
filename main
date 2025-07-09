@@ -1,0 +1,418 @@
+local uis = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local rs = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local savedCheckpoints = {}
+
+local flyEnabled = false
+local flyConnection
+local originalCollisionStates = {}
+local flyBodyVelocity
+local flyBodyAngularVelocity
+
+local controls = {
+	toggleFly = Enum.KeyCode.One,
+	saveCheckpoint = Enum.KeyCode.Seven,
+	goToCheckpoint = Enum.KeyCode.R,
+	deleteCheckpoint = Enum.KeyCode.RightBracket,
+}
+
+local menuInterface = nil
+local isMenuVisible = false
+
+local function getchar()
+	return player.Character or player.CharacterAdded:Wait()
+end
+
+local function setupKeybindInterface()
+	local mainScreen = Instance.new("ScreenGui")
+	mainScreen.Name = "KeybindMenu"
+	mainScreen.Parent = playerGui
+
+	local openButton = Instance.new("TextButton")
+	openButton.Name = "KeybindMenuButton"
+	openButton.Size = UDim2.new(0, 100, 0, 40)
+	openButton.Position = UDim2.new(0, 10, 0.5, -80)
+	openButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	openButton.BorderSizePixel = 0
+	openButton.Text = "AJ HUB (public ver.)"
+	openButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	openButton.TextScaled = true
+	openButton.Font = Enum.Font.SourceSansBold
+	openButton.Parent = mainScreen
+
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0, 8)
+	buttonCorner.Parent = openButton
+
+	local settingsFrame = Instance.new("Frame")
+	settingsFrame.Name = "MainFrame"
+	settingsFrame.Size = UDim2.new(0, 500, 0, 350)
+	settingsFrame.Position = UDim2.new(0.5, -250, 0.5, -175)
+	settingsFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	settingsFrame.BorderSizePixel = 0
+	settingsFrame.Visible = false
+	settingsFrame.Parent = mainScreen
+
+	local frameCorner = Instance.new("UICorner")
+	frameCorner.CornerRadius = UDim.new(0, 12)
+	frameCorner.Parent = settingsFrame
+
+	local titleText = Instance.new("TextLabel")
+	titleText.Name = "Title"
+	titleText.Size = UDim2.new(1, -60, 0, 50)
+	titleText.Position = UDim2.new(0, 0, 0, 0)
+	titleText.BackgroundTransparency = 1
+	titleText.Text = "Settings"
+	titleText.TextColor3 = Color3.fromRGB(255, 100, 200)
+	titleText.TextScaled = true
+	titleText.Font = Enum.Font.SourceSansBold
+	titleText.Parent = settingsFrame
+
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseButton"
+	closeBtn.Size = UDim2.new(0, 40, 0, 40)
+	closeBtn.Position = UDim2.new(1, -50, 0, 10)
+	closeBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	closeBtn.TextScaled = true
+	closeBtn.Font = Enum.Font.SourceSansBold
+	closeBtn.Parent = settingsFrame
+
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0, 8)
+	closeBtnCorner.Parent = closeBtn
+
+	local function createKeybindRow(keyName, displayText, verticalPos)
+		local functionLabel = Instance.new("TextLabel")
+		functionLabel.Name = keyName .. "Label"
+		functionLabel.Size = UDim2.new(0, 200, 0, 40)
+		functionLabel.Position = UDim2.new(0, 30, 0, verticalPos)
+		functionLabel.BackgroundTransparency = 1
+		functionLabel.Text = displayText
+		functionLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		functionLabel.TextScaled = true
+		functionLabel.Font = Enum.Font.SourceSans
+		functionLabel.TextXAlignment = Enum.TextXAlignment.Left
+		functionLabel.Parent = settingsFrame
+
+		local changeButton = Instance.new("TextButton")
+		changeButton.Name = keyName .. "Button"
+		changeButton.Size = UDim2.new(0, 120, 0, 30)
+		changeButton.Position = UDim2.new(0, 250, 0, verticalPos + 5)
+		changeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+		changeButton.BorderSizePixel = 0
+		changeButton.Text = controls[keyName].Name
+		changeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+		changeButton.TextScaled = true
+		changeButton.Font = Enum.Font.SourceSans
+		changeButton.Parent = settingsFrame
+
+		local changeButtonCorner = Instance.new("UICorner")
+		changeButtonCorner.CornerRadius = UDim.new(0, 6)
+		changeButtonCorner.Parent = changeButton
+
+		local isListening = false
+		changeButton.MouseButton1Click:Connect(function()
+			if isListening then return end
+
+			isListening = true
+			changeButton.Text = "Press a key..."
+			changeButton.BackgroundColor3 = Color3.fromRGB(100, 150, 100)
+
+			local inputConnection
+			inputConnection = uis.InputBegan:Connect(function(input, gameProcessed)
+				if gameProcessed then return end
+
+				if input.UserInputType == Enum.UserInputType.Keyboard then
+					controls[keyName] = input.KeyCode
+					changeButton.Text = input.KeyCode.Name
+					changeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+					isListening = false
+					inputConnection:Disconnect()
+				end
+			end)
+		end)
+	end
+
+	createKeybindRow("toggleFly", "Fly Toggle", 70)
+	createKeybindRow("saveCheckpoint", "Save Checkpoint", 120)
+	createKeybindRow("goToCheckpoint", "Teleport to Checkpoint", 170)
+	createKeybindRow("deleteCheckpoint", "Remove Last Checkpoint", 220)
+
+	openButton.MouseButton1Click:Connect(function()
+		isMenuVisible = not isMenuVisible
+		settingsFrame.Visible = isMenuVisible
+	end)
+
+	closeBtn.MouseButton1Click:Connect(function()
+		isMenuVisible = false
+		settingsFrame.Visible = false
+	end)
+
+	menuInterface = mainScreen
+end
+
+local function createCheckpointVisual(position)
+	local marker = Instance.new("Part")
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.CanTouch = false
+	marker.Size = Vector3.new(2, 2, 1)
+	marker.CFrame = position
+	marker.Transparency = 0.8
+	marker.Color = Color3.new(1, 1, 1)
+	marker.Material = Enum.Material.Neon
+	marker.Name = "CheckpointMarker"
+	marker.Parent = workspace
+
+	return marker
+end
+
+local function teleportPlayer(targetCFrame)
+	local character = getchar()
+	if not character then return end
+
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+	if rootPart and humanoid then
+		rootPart.CFrame = targetCFrame
+		rootPart.Velocity = Vector3.new(0, 0, 0)
+		rootPart.AngularVelocity = Vector3.new(0, 0, 0)
+
+		wait(0.1)
+		if workspace.CurrentCamera then
+			workspace.CurrentCamera.CameraSubject = humanoid
+		end
+	end
+end
+
+local function checkIfGroundPart(part, hitPos, char)
+	return false
+end
+
+local function startFlying()
+	local character = getchar()
+	if not character then return end
+
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not rootPart or not humanoid then return end
+
+	flyEnabled = true
+	originalCollisionStates = {}
+
+	for _, part in pairs(character:GetChildren()) do
+		if part:IsA("BasePart") then
+			originalCollisionStates[part] = part.CanCollide
+			part.CanCollide = false
+		end
+	end
+
+	flyBodyVelocity = Instance.new("BodyVelocity")
+	flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+	flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	flyBodyVelocity.Parent = rootPart
+
+	flyBodyAngularVelocity = Instance.new("BodyAngularVelocity")
+	flyBodyAngularVelocity.MaxTorque = Vector3.new(4000, 4000, 4000)
+	flyBodyAngularVelocity.AngularVelocity = Vector3.new(0, 0, 0)
+	flyBodyAngularVelocity.Parent = rootPart
+
+	humanoid.PlatformStand = true
+
+	flyConnection = rs.Heartbeat:Connect(function()
+		if not flyEnabled then return end
+
+		local char = getchar()
+		if not char then return end
+
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hrp or not hum then return end
+
+		local camera = workspace.CurrentCamera
+		if not camera then return end
+
+		local speed = 50
+		local moveVector = Vector3.new(0, 0, 0)
+
+		local lookDirection = camera.CFrame.LookVector
+		local rightDirection = camera.CFrame.RightVector
+		local upDirection = camera.CFrame.UpVector
+
+		if uis:IsKeyDown(Enum.KeyCode.W) then
+			moveVector = moveVector + lookDirection
+		end
+		if uis:IsKeyDown(Enum.KeyCode.S) then
+			moveVector = moveVector - lookDirection
+		end
+		if uis:IsKeyDown(Enum.KeyCode.A) then
+			moveVector = moveVector - rightDirection
+		end
+		if uis:IsKeyDown(Enum.KeyCode.D) then
+			moveVector = moveVector + rightDirection
+		end
+
+		if uis:IsKeyDown(Enum.KeyCode.Space) then
+			moveVector = moveVector + Vector3.new(0, 1, 0)
+		end
+		if uis:IsKeyDown(Enum.KeyCode.LeftShift) then
+			moveVector = moveVector + Vector3.new(0, -1, 0)
+		end
+
+		if uis:IsKeyDown(Enum.KeyCode.Q) then
+			moveVector = moveVector + upDirection
+		end
+		if uis:IsKeyDown(Enum.KeyCode.E) then
+			moveVector = moveVector - upDirection
+		end
+
+		if moveVector.Magnitude > 0 then
+			moveVector = moveVector.Unit * speed
+		end
+
+		if flyBodyVelocity then
+			flyBodyVelocity.Velocity = moveVector
+		end
+
+		if uis.MouseBehavior == Enum.MouseBehavior.LockCenter then
+			hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + camera.CFrame.LookVector)
+		end
+
+		for _, part in pairs(char:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end)
+end
+
+local function stopFlying()
+	flyEnabled = false
+
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+
+	local character = getchar()
+	if character then
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+		if flyBodyVelocity then
+			flyBodyVelocity:Destroy()
+			flyBodyVelocity = nil
+		end
+
+		if flyBodyAngularVelocity then
+			flyBodyAngularVelocity:Destroy()
+			flyBodyAngularVelocity = nil
+		end
+
+		if humanoid then
+			humanoid.PlatformStand = false
+		end
+
+		for part, originalState in pairs(originalCollisionStates) do
+			if part and part.Parent then
+				part.CanCollide = originalState
+			end
+		end
+	end
+
+	originalCollisionStates = {}
+end
+
+uis.InputBegan:Connect(function(input, processed)
+	if processed then return end
+
+	local character = getchar()
+	if not character then return end
+
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+
+	if input.KeyCode == controls.toggleFly then
+		if not flyEnabled then
+			startFlying()
+		end
+
+	elseif input.KeyCode == controls.saveCheckpoint then
+		local currentPos = rootPart.CFrame
+		local visual = createCheckpointVisual(currentPos)
+		table.insert(savedCheckpoints, { cframe = currentPos, marker = visual })
+
+		if #savedCheckpoints > 10 then
+			local oldestCheckpoint = table.remove(savedCheckpoints, 1)
+			if oldestCheckpoint.marker then
+				oldestCheckpoint.marker:Destroy()
+			end
+		end
+
+	elseif input.KeyCode == controls.goToCheckpoint then
+		if #savedCheckpoints > 0 then
+			teleportPlayer(savedCheckpoints[#savedCheckpoints].cframe)
+		end
+
+	elseif input.KeyCode == controls.deleteCheckpoint then
+		if #savedCheckpoints > 0 then
+			local lastCheckpoint = table.remove(savedCheckpoints)
+			if lastCheckpoint.marker then
+				lastCheckpoint.marker:Destroy()
+			end
+		end
+
+	end
+end)
+
+uis.InputEnded:Connect(function(input, processed)
+	if input.KeyCode == controls.toggleFly then
+		if flyEnabled then
+			stopFlying()
+		end
+	end
+end)
+
+player.CharacterAdded:Connect(function(newChar)
+	if flyEnabled then
+		stopFlying()
+	end
+
+	if menuInterface then
+		menuInterface:Destroy()
+	end
+	setupKeybindInterface()
+end)
+
+local function cleanupEverything()
+	if flyEnabled then
+		stopFlying()
+	end
+
+	for _, checkpoint in pairs(savedCheckpoints) do
+		if checkpoint.marker then
+			checkpoint.marker:Destroy()
+		end
+	end
+	savedCheckpoints = {}
+
+	if menuInterface then
+		menuInterface:Destroy()
+	end
+end
+
+Players.PlayerRemoving:Connect(function(leavingPlayer)
+	if leavingPlayer == player then
+		cleanupEverything()
+	end
+end)
+
+setupKeybindInterface()
